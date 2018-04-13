@@ -10,6 +10,7 @@ import os
 import sys
 import re
 from jsonschema import validate
+from jsonschema import ValidationError
 
 testSchema = {
      "type" : "object",
@@ -28,7 +29,7 @@ testSchema = {
  }
 
 def lineToTestAnnotation(line,linenumber):
-    """
+   """
     returns a dictionary indicating whether this line is a test annotation or not
 
     { isTest: bool, True if this is a test annotation with valid json
@@ -41,7 +42,28 @@ def lineToTestAnnotation(line,linenumber):
     }
    """
 
-   # TODO... finish this function
+   retVal = { "line" : line, "linenumber" : linenumber }
+
+   test_regular_expresssion="^[ ]*#[ ]*@({.*})[\s]*$" # test it at https://pythex.org/
+   
+   matches = re.fullmatch(test_regular_expression, line.strip())
+   if not matches:
+       retVal["isTest"]=False
+       retVal["isError"]=False       
+       return retVal
+
+   retVal["jsonString"]=matches.group(0)
+
+   try:
+       v=validate(retVal["jsonString"],schema)
+       retVal["test"]=json.loads(retVal["jsonString"])
+       retVal["isTest"]=True
+       retVal["isError"]=False
+   except ValidationError:
+       retVal["isTest"]=False       
+       retVal["isError"]=True
+
+   return retVal
     
 
 
