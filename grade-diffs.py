@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from __future__ import print_function
 
@@ -11,24 +11,35 @@ import sys
 import re
 from jsonschema import validate
 from jsonschema import ValidationError
+from pprint import pprint
 
-testSchema = {
-     "type" : "object",
-     "properties" : {
-         "stdout" : {"type" : "number"},
-         "stderr" : {"type" : "number"},
-         "name" :   {"type" : "string"},
-         "visibility" : {
-             "type" : "string",
-             "enum": ["hidden",
-                      "after_due_date",
-                      "after_published",
-                      "visible"]
-         }
-     }
- }
+testSchema ={
+  "type": "object",
+  "properties": {
+    "stdout": {
+      "type": "number"
+    },
+    "stderr": {
+      "type": "number"
+    },
+    "name": {
+      "type": "string"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "hidden",
+        "after_due_date",
+        "after_published",
+        "visible"
+      ]
+    }
+  },
+  "additionalProperties": False
+}
 
-def lineToTestAnnotation(line,linenumber):
+
+def lineToTestAnnotation(args,line,linenumber):
    """
     returns a dictionary indicating whether this line is a test annotation or not
 
@@ -44,25 +55,27 @@ def lineToTestAnnotation(line,linenumber):
 
    retVal = { "line" : line, "linenumber" : linenumber }
 
-   test_regular_expresssion="^[ ]*#[ ]*@({.*})[\s]*$" # test it at https://pythex.org/
+   test_regular_expression="^#[ ]*@test(.*)$" # test it at https://pythex.org/
    
-   matches = re.fullmatch(test_regular_expression, line.strip())
+   matches = re.match(test_regular_expression, line.strip())
    if not matches:
        retVal["isTest"]=False
        retVal["isError"]=False       
        return retVal
 
-   retVal["jsonString"]=matches.group(0)
+   retVal["jsonString"]=matches.group(1)
 
+    
    try:
-       v=validate(retVal["jsonString"],schema)
        retVal["test"]=json.loads(retVal["jsonString"])
+       v=validate(retVal["test"], testSchema)
        retVal["isTest"]=True
        retVal["isError"]=False
    except ValidationError:
        retVal["isTest"]=False       
        retVal["isError"]=True
-
+       retVal["error"]="ERROR MESSAGE SHOULD GO HERE"
+         
    return retVal
     
 
@@ -80,9 +93,11 @@ def haltWithError(message):
     sys.exit(1)
 
 def processLine(args,line, linenumber):
-    if (args.verbose > 0):
+    if (args.verbose > 1):
         print("linenumber: ",linenumber," line: ",line.strip())
-   
+    testAnnotation = lineToTestAnnotation(args,line,linenumber)
+    return testAnnotation
+ 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Generate Gradescope compatible results.json for diff-based testing',
@@ -103,29 +118,59 @@ if __name__ == "__main__":
         
        '''))
 
-    parser.add_argument('--verbose', '-v', action='count')
+    parser.add_argument('--verbose', '-v', action='count', default=0)
+    parser.add_argument('--reference', '-r',action='store_true')
     
     args = parser.parse_args()    
-
-    reference_dir = args.script + "-reference"
 
     if (not os.path.isfile(args.script)):
         haltWithError("ERROR: the script " + args.script + " does not exist")
 
-    if (not os.path.isdir(reference_dir)):
-        haltWithError("ERROR: the directory " + reference_dir + " does not exist")
 
-        
+    testAnnotations=[]
     with open(args.script) as infile:
         linenumber = 0
+        prevLineWasTestAnnotation = False
         for line in infile:
             linenumber += 1
-            processLine(args,line,linenumber)
-        
-    results = loadResultsJsonIfExists()
+            if prevLineWasTestAnnotation:
+               ta["shell_command"]=line
+               testAnnotations.append(ta)
+               prevLineWasTestAnnotation = False
+            else:
+              ta = processLine(args,line,linenumber)
+              if ta["isTest"]:
+                 prevLineWasTestAnnotation = True
 
-    with open('results.json', 'w') as outfile:
-        json.dump(results, outfile)
+    if args.verbose > 2:
+       pprint(testAnnotations)
+
+    reference_dir = args.script + "-reference"        
+
+       
+    if args.reference:
+       print("Creating directory ",reference_dir,"...")
+       try:
+          os.mkdir(reference_dir)
+       except FileExistsError:
+          haltWithError("Error: " + reference_dir + " already exists.  Please delete it before proceeding")
+          
+       pass # Do what is needed for calculating reference output here
+    
+    else:
+
+       if (not os.path.isdir(reference_dir)):
+          haltWithError("ERROR: the directory " + reference_dir + " does not exist")
+
+       # Do what is needed to run each command and calculate the grades
+       # Then add each of those to the JSON file.
+       
+       results = loadResultsJsonIfExists()
+
+       # THIS IS THE PLACE IN THE CODE WHERE YOU ADD TESTS into the results["tests"] array.
+        
+       with open('results.json', 'w') as outfile:
+           json.dump(results, outfile)
 
 
     
