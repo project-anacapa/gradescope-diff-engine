@@ -6,11 +6,13 @@ import json
 import pprint
 import argparse
 import textwrap
+import subprocess
 import os
 import sys
 import re
 from jsonschema import validate
 from jsonschema import ValidationError
+from json.decoder import JSONDecodeError
 from pprint import pprint
 
 testSchema ={
@@ -22,7 +24,13 @@ testSchema ={
     "stderr": {
       "type": "number"
     },
-    "name": {
+    "filename": {
+      "type": "string"
+    },
+    "points": {
+      "type": "number"
+    },
+     "name": {
       "type": "string"
     },
     "visibility": {
@@ -71,15 +79,12 @@ def lineToTestAnnotation(args,line,linenumber):
        v=validate(retVal["test"], testSchema)
        retVal["isTest"]=True
        retVal["isError"]=False
-   except ValidationError:
+   except (ValidationError, JSONDecodeError) as e:
        retVal["isTest"]=False       
        retVal["isError"]=True
-       retVal["error"]="ERROR MESSAGE SHOULD GO HERE"
-         
+       retVal["error"]=e.msg
    return retVal
     
-
-
 
 def loadResultsJsonIfExists():    
     try:
@@ -92,6 +97,16 @@ def haltWithError(message):
     print (message)
     sys.exit(1)
 
+
+def generateOutput(args,ta,reference_dir):
+
+   stdoutFilename = os.path.join(reference_dir,  "%05d.stderr" % ta["linenumber"] )
+   stderrFilename = os.path.join(reference_dir,  "%05d.stdout" % ta["linenumber"] )
+   
+   with open(stdoutFilename,'w') as out, open(stderrFilename,'w') as err:
+      output = subprocess.Popen(ta["shell_command"].strip().split(" "), stdout=out, stderr=err)
+
+    
 def processLine(args,line, linenumber):
     if (args.verbose > 1):
         print("linenumber: ",linenumber," line: ",line.strip())
@@ -139,6 +154,8 @@ if __name__ == "__main__":
                prevLineWasTestAnnotation = False
             else:
               ta = processLine(args,line,linenumber)
+              if ta["isError"]:
+                 print("Error on line",linenumber," of ", args.script, " : ",ta["error"])
               if ta["isTest"]:
                  prevLineWasTestAnnotation = True
 
@@ -154,9 +171,10 @@ if __name__ == "__main__":
           os.mkdir(reference_dir)
        except FileExistsError:
           haltWithError("Error: " + reference_dir + " already exists.  Please delete it before proceeding")
+
+       for ta in testAnnotations:
+          generateOutput(args,ta,reference_dir)
           
-       pass # Do what is needed for calculating reference output here
-    
     else:
 
        if (not os.path.isdir(reference_dir)):
